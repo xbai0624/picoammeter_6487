@@ -114,12 +114,16 @@ void AcquisitionThread::run()
                 estRate = (nLast - nFirst) / (tLast - tFirst); // pure fill rate
             // else: filled within one poll — keep the previous estimate
 
-            // Readings are evenly spaced across the measured fill interval.
+            // True fill window: n readings ending where the buffer was seen
+            // full (tLast), spaced by the measured fill rate. Using the whole
+            // arm..poll interval would inflate the clump width with command
+            // latency that is not measurement time.
             const int n = currents.size();
-            const double dt = (tEnd - tStart) / n;
+            const double fillEnd = (tLast > 0) ? tLast : tEnd;
+            const double dt = 1.0 / estRate;
             QVector<double> times(n);
             for (int i = 0; i < n; ++i)
-                times[i] = tStart + (i + 1) * dt;
+                times[i] = fillEnd - (n - 1 - i) * dt;
 
             emit newReadings(times, currents);
         }
@@ -140,18 +144,28 @@ void AcquisitionThread::run()
 
             const double t0 = clock.nsecsElapsed() * 1e-9;
             QVector<double> currents;
-            if (!drv.readBatch(currents, int(batch / estRate * 1000.0) + 1000, &err)) {
+            int respBytes = 0;
+            if (!drv.readBatch(currents, int(batch / estRate * 1000.0) + 1000,
+                               &respBytes, &err)) {
                 failed = true;
                 break;
             }
             const double t1 = clock.nsecsElapsed() * 1e-9;
             // Includes one command round trip of overhead: mild underestimate
             // that converges (overhead shrinks relative to a growing batch).
+            // Kept as wall-time rate on purpose — it sizes batches against the
+            // refresh cadence.
             if (t1 > t0)
                 estRate = currents.size() / (t1 - t0);
 
+            // True sample times: the serial transfer of the reply happens
+            // after the last reading is taken, so the measurement window ends
+            // ~responseBytes*10/baud before t1 (10 bits/byte at 8N1).
+            const double transfer =
+                (p.bus == Bus::Serial) ? respBytes * 10.0 / p.baudRate : 0.0;
+            const double measEnd = qMax(t0, t1 - transfer);
             const int n = currents.size();
-            const double dt = (t1 - t0) / n;
+            const double dt = (measEnd - t0) / n;
             QVector<double> times(n);
             for (int i = 0; i < n; ++i)
                 times[i] = t0 + (i + 1) * dt;

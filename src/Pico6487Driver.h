@@ -32,7 +32,10 @@ public:
     // --- Continuous mode: one READ? returns triggerCount readings taken
     // back-to-back (amortizes the command round trip over the whole batch) ---
     bool configureContinuous(int triggerCount, QString *err = nullptr);
-    bool readBatch(QVector<double> &readings, int expectedMs, QString *err = nullptr);
+    // responseBytes (optional) receives the raw reply size, letting the caller
+    // subtract the serial transfer time from the acquisition window.
+    bool readBatch(QVector<double> &readings, int expectedMs,
+                   int *responseBytes = nullptr, QString *err = nullptr);
 
     // Restore a friendly front-panel state (display on, zero check on).
     void shutdown();

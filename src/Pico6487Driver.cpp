@@ -137,7 +137,8 @@ bool Pico6487Driver::configureContinuous(int triggerCount, QString *err)
     return cmd("TRIG:DEL 0", err);
 }
 
-bool Pico6487Driver::readBatch(QVector<double> &readings, int expectedMs, QString *err)
+bool Pico6487Driver::readBatch(QVector<double> &readings, int expectedMs,
+                               int *responseBytes, QString *err)
 {
     QByteArray resp;
     // READ? blocks until all triggerCount readings are taken, then returns
@@ -145,6 +146,8 @@ bool Pico6487Driver::readBatch(QVector<double> &readings, int expectedMs, QStrin
     if (!m_gpib->query("READ?", resp, m_triggerCount * 32 + 256, err,
                        expectedMs + 3000))
         return false;
+    if (responseBytes)
+        *responseBytes = resp.size();
     readings.reserve(m_triggerCount);
     return parseReadings(resp, readings, err);
 }

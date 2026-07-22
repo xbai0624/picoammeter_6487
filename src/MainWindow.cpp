@@ -2,6 +2,7 @@
 #include "AcquisitionThread.h"
 #include "PlotWidget.h"
 
+#include <QCoreApplication>
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
