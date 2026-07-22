@@ -72,10 +72,10 @@ void AcquisitionThread::run()
             // 6485 buffer holds 2500 readings (6487: 3000) — use the smaller
             // so both models work.
             const int wanted =
-                qBound(2, int(estRate * m_refreshMs.load() / 1000.0 + 0.5), 2500);
+                qBound(10, int(estRate * m_refreshMs.load() / 1000.0 + 0.5), 2500);
             // Reconfigure only on a meaningful change (>10%) to avoid
             // re-sending the trigger/buffer setup on every rate jitter.
-            if (burstSize == 0 || std::abs(wanted - burstSize) * 10 > burstSize) {
+            if (burstSize < 10 || std::abs(wanted - burstSize) * 10 > burstSize) {
                 burstSize = wanted;
                 if (!drv.configureBurst(burstSize, &err)) {
                     emit errorOccurred(QStringLiteral("Burst setup failed: ") + err);
@@ -87,11 +87,20 @@ void AcquisitionThread::run()
             if (!drv.armBurst(&err)) { failed = true; break; }
             const double tStart = clock.nsecsElapsed() * 1e-9;
 
-            // Wait for the internal buffer to fill.
+            // Wait for the internal buffer to fill, sampling (time, count)
+            // pairs so the true fill rate can be measured between polls —
+            // excluding the fixed arm/transfer overhead, which previously fed
+            // back into the burst sizing and collapsed it over high-latency
+            // links (serial ended up at minimum burst, ~16 rdg/s).
             int actual = 0;
+            double tFirst = 0, tLast = 0;
+            int nFirst = 0, nLast = 0;
             while (!m_stop.load()) {
                 msleep(5);
                 if (!drv.burstPointCount(actual, &err)) { failed = true; break; }
+                const double now = clock.nsecsElapsed() * 1e-9;
+                if (nFirst == 0 && actual > 0) { tFirst = now; nFirst = actual; }
+                if (actual > nLast)            { tLast = now;  nLast = actual;  }
                 if (actual >= burstSize)
                     break;
             }
@@ -101,8 +110,9 @@ void AcquisitionThread::run()
 
             QVector<double> currents;
             if (!drv.fetchBurst(currents, &err)) { failed = true; break; }
-            if (tEnd > tStart)
-                estRate = currents.size() / (tEnd - tStart);
+            if (nLast > nFirst && tLast > tFirst)
+                estRate = (nLast - nFirst) / (tLast - tFirst); // pure fill rate
+            // else: filled within one poll — keep the previous estimate
 
             // Readings are evenly spaced across the measured fill interval.
             const int n = currents.size();
@@ -113,28 +123,40 @@ void AcquisitionThread::run()
 
             emit newReadings(times, currents);
         }
-    } else { // Continuous
-        if (!drv.configureContinuous(&err)) {
-            emit errorOccurred(QStringLiteral("Continuous setup failed: ") + err);
-            failed = true;
-        }
-        QVector<double> times, currents;
-        QElapsedTimer batchTimer;
-        batchTimer.start();
+    } else { // Continuous: batched READ? — TRIG:COUN readings per round trip
+        double estRate = qBound(1.0, 1000.0 * 0.01 / p.nplc, 1000.0);
+        int batch = 0;
         while (!failed && !m_stop.load()) {
-            double amps = 0.0;
-            if (!drv.readSingle(amps, &err)) { failed = true; break; }
-            times.append(clock.nsecsElapsed() * 1e-9);
-            currents.append(amps);
-            if (batchTimer.elapsed() >= m_refreshMs.load()) {
-                emit newReadings(times, currents);
-                times.clear();
-                currents.clear();
-                batchTimer.restart();
+            const int wanted =
+                qBound(1, int(estRate * m_refreshMs.load() / 1000.0 + 0.5), 2500);
+            if (batch == 0 || std::abs(wanted - batch) * 10 > batch) {
+                batch = wanted;
+                if (!drv.configureContinuous(batch, &err)) {
+                    emit errorOccurred(QStringLiteral("Continuous setup failed: ") + err);
+                    failed = true;
+                    break;
+                }
             }
-        }
-        if (!currents.isEmpty())
+
+            const double t0 = clock.nsecsElapsed() * 1e-9;
+            QVector<double> currents;
+            if (!drv.readBatch(currents, int(batch / estRate * 1000.0) + 1000, &err)) {
+                failed = true;
+                break;
+            }
+            const double t1 = clock.nsecsElapsed() * 1e-9;
+            // Includes one command round trip of overhead: mild underestimate
+            // that converges (overhead shrinks relative to a growing batch).
+            if (t1 > t0)
+                estRate = currents.size() / (t1 - t0);
+
+            const int n = currents.size();
+            const double dt = (t1 - t0) / n;
+            QVector<double> times(n);
+            for (int i = 0; i < n; ++i)
+                times[i] = t0 + (i + 1) * dt;
             emit newReadings(times, currents);
+        }
     }
 
     drv.shutdown();

@@ -24,7 +24,8 @@ public:
 
     bool clear(QString *err = nullptr) override;
     bool write(const QByteArray &data, QString *err = nullptr) override;
-    bool read(QByteArray &out, int maxLen = 65536, QString *err = nullptr) override;
+    bool read(QByteArray &out, int maxLen = 65536, QString *err = nullptr,
+              int timeoutMs = 3000) override;
 
 private:
     std::unique_ptr<QSerialPort> m_port;

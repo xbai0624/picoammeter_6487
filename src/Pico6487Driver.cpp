@@ -98,53 +98,55 @@ bool Pico6487Driver::burstPointCount(int &actual, QString *err)
     return true;
 }
 
+bool Pico6487Driver::parseReadings(const QByteArray &resp, QVector<double> &out,
+                                   QString *err)
+{
+    out.clear();
+    for (const QByteArray &tok : resp.split(',')) {
+        bool ok = false;
+        double v = tok.trimmed().toDouble(&ok);
+        if (ok)
+            out.append(v);
+    }
+    if (out.isEmpty()) {
+        if (err)
+            *err = QStringLiteral("no parsable readings in reply: \"%1\"")
+                       .arg(QString::fromLatin1(resp.left(64)));
+        return false;
+    }
+    return true;
+}
+
 bool Pico6487Driver::fetchBurst(QVector<double> &readings, QString *err)
 {
     QByteArray resp;
     // ~15 bytes per ASCII reading; allow generous headroom.
     if (!m_gpib->query("TRAC:DATA?", resp, m_burstSize * 32 + 256, err))
         return false;
-
-    readings.clear();
     readings.reserve(m_burstSize);
-    for (const QByteArray &tok : resp.split(',')) {
-        bool ok = false;
-        double v = tok.trimmed().toDouble(&ok);
-        if (ok)
-            readings.append(v);
-    }
-    if (readings.isEmpty()) {
-        if (err)
-            *err = QStringLiteral("TRAC:DATA? returned no parsable readings");
-        return false;
-    }
-    return true;
+    return parseReadings(resp, readings, err);
 }
 
-bool Pico6487Driver::configureContinuous(QString *err)
+bool Pico6487Driver::configureContinuous(int triggerCount, QString *err)
 {
+    m_triggerCount = triggerCount;
     if (!cmd("ARM:COUN 1", err))
         return false;
-    if (!cmd("TRIG:COUN 1", err))
+    if (!cmd(QByteArray("TRIG:COUN ") + QByteArray::number(triggerCount), err))
         return false;
     return cmd("TRIG:DEL 0", err);
 }
 
-bool Pico6487Driver::readSingle(double &amps, QString *err)
+bool Pico6487Driver::readBatch(QVector<double> &readings, int expectedMs, QString *err)
 {
     QByteArray resp;
-    if (!m_gpib->query("READ?", resp, 256, err))
+    // READ? blocks until all triggerCount readings are taken, then returns
+    // them comma-separated — allow the measurement time plus margin.
+    if (!m_gpib->query("READ?", resp, m_triggerCount * 32 + 256, err,
+                       expectedMs + 3000))
         return false;
-    // FORM:ELEM READ gives a single number; be tolerant of extra elements.
-    bool ok = false;
-    amps = resp.split(',').first().trimmed().toDouble(&ok);
-    if (!ok) {
-        if (err)
-            *err = QStringLiteral("unexpected READ? reply: \"%1\"")
-                       .arg(QString::fromLatin1(resp.left(64)));
-        return false;
-    }
-    return true;
+    readings.reserve(m_triggerCount);
+    return parseReadings(resp, readings, err);
 }
 
 void Pico6487Driver::shutdown()

@@ -29,9 +29,10 @@ public:
     bool burstPointCount(int &actual, QString *err = nullptr); // TRAC:POIN:ACT?
     bool fetchBurst(QVector<double> &readings, QString *err = nullptr);
 
-    // --- Continuous mode: one triggered reading per call ---
-    bool configureContinuous(QString *err = nullptr);
-    bool readSingle(double &amps, QString *err = nullptr);
+    // --- Continuous mode: one READ? returns triggerCount readings taken
+    // back-to-back (amortizes the command round trip over the whole batch) ---
+    bool configureContinuous(int triggerCount, QString *err = nullptr);
+    bool readBatch(QVector<double> &readings, int expectedMs, QString *err = nullptr);
 
     // Restore a friendly front-panel state (display on, zero check on).
     void shutdown();
@@ -41,9 +42,12 @@ public:
 private:
     bool cmd(const char *scpi, QString *err);
     bool cmd(const QByteArray &scpi, QString *err);
+    static bool parseReadings(const QByteArray &resp, QVector<double> &out,
+                              QString *err);
 
     CommInterface *m_gpib;
     int m_burstSize = 1000;
+    int m_triggerCount = 1;
 };
 
 #endif // PICO6487_DRIVER_H

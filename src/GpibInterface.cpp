@@ -41,10 +41,17 @@ void GpibInterface::mockHandle(const QByteArray &cmdRaw)
     if (cmd == "*IDN?") {
         m_responses.enqueue("MOCK INSTRUMENTS,Model 6487 (simulated),0000000,A00");
     } else if (cmd == "READ?") {
-        QThread::usleep(5000); // emulate ~200 rdg/s polling
+        // Honors TRIG:COUN: returns m_burstSize readings taken back-to-back,
+        // taking n/rate to "measure" plus a small command latency.
         if (!m_burstTimer.isValid())
             m_burstTimer.start();
-        m_responses.enqueue(mockReading());
+        QThread::usleep(5000 + qint64(m_burstSize / m_mockRate * 1e6));
+        QByteArray outBatch;
+        for (int i = 0; i < m_burstSize; ++i) {
+            if (i) outBatch += ',';
+            outBatch += mockReading();
+        }
+        m_responses.enqueue(outBatch);
     } else if (cmd.startsWith("TRIG:COUN")) {
         bool ok = false;
         int n = cmd.mid(cmd.lastIndexOf(' ') + 1).toInt(&ok);
@@ -85,7 +92,7 @@ bool GpibInterface::write(const QByteArray &data, QString *err)
     return true;
 }
 
-bool GpibInterface::read(QByteArray &out, int, QString *err)
+bool GpibInterface::read(QByteArray &out, int, QString *err, int)
 {
     if (!m_open || m_responses.isEmpty()) {
         if (err) *err = QStringLiteral("mock GPIB: nothing to read (query timeout)");
@@ -114,7 +121,7 @@ void GpibInterface::close() {}
 bool GpibInterface::isOpen() const { return false; }
 bool GpibInterface::clear(QString *err) { return open(0, 0, err); }
 bool GpibInterface::write(const QByteArray &, QString *err) { return open(0, 0, err); }
-bool GpibInterface::read(QByteArray &, int, QString *err) { return open(0, 0, err); }
+bool GpibInterface::read(QByteArray &, int, QString *err, int) { return open(0, 0, err); }
 
 #else // ===================== real GPIB backend =============================
 
@@ -222,7 +229,7 @@ bool GpibInterface::write(const QByteArray &data, QString *err)
     return true;
 }
 
-bool GpibInterface::read(QByteArray &out, int maxLen, QString *err)
+bool GpibInterface::read(QByteArray &out, int maxLen, QString *err, int /*timeoutMs*/)
 {
     if (m_ud < 0) {
         if (err) *err = QStringLiteral("GPIB: not open");

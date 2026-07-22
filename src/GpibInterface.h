@@ -31,7 +31,9 @@ public:
     bool write(const QByteArray &data, QString *err = nullptr) override;
 
     // Read one response message (up to maxLen bytes), trailing whitespace trimmed.
-    bool read(QByteArray &out, int maxLen = 65536, QString *err = nullptr) override;
+    // timeoutMs is ignored: the GPIB descriptor uses its own fixed 10 s timeout.
+    bool read(QByteArray &out, int maxLen = 65536, QString *err = nullptr,
+              int timeoutMs = 3000) override;
 
 private:
 #ifdef PICO_MOCK_GPIB

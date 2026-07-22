@@ -118,8 +118,11 @@ QWidget *MainWindow::buildControlPanel()
 
     m_modeCombo = new QComboBox(measBox);
     m_modeCombo->addItem(tr("Fast burst (~1000 rdg/s, gaps)"), int(AcquisitionThread::Mode::Burst));
-    m_modeCombo->addItem(tr("Continuous (gap-free, slower)"),
+    m_modeCombo->addItem(tr("Continuous (batched readings)"),
                          int(AcquisitionThread::Mode::Continuous));
+    m_modeCombo->setToolTip(tr("Fast burst: instrument buffer, maximum rate.\n"
+                               "Continuous: batched READ? triggers - near gap-free,\n"
+                               "only ~10 ms between batches."));
 
     m_rangeCombo = new QComboBox(measBox);
     const struct { const char *label; double amps; } ranges[] = {

@@ -23,14 +23,17 @@ public:
     virtual bool write(const QByteArray &data, QString *err = nullptr) = 0;
 
     // Read one response message, trailing line terminators trimmed.
-    virtual bool read(QByteArray &out, int maxLen = 65536, QString *err = nullptr) = 0;
+    // timeoutMs bounds how long to wait for the (start of the) response —
+    // raise it for queries that block while the instrument measures.
+    virtual bool read(QByteArray &out, int maxLen = 65536, QString *err = nullptr,
+                      int timeoutMs = 3000) = 0;
 
     bool query(const QByteArray &cmd, QByteArray &resp, int maxLen = 65536,
-               QString *err = nullptr)
+               QString *err = nullptr, int timeoutMs = 3000)
     {
         if (!write(cmd, err))
             return false;
-        return read(resp, maxLen, err);
+        return read(resp, maxLen, err, timeoutMs);
     }
 };
 

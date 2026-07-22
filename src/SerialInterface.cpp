@@ -69,20 +69,21 @@ bool SerialInterface::write(const QByteArray &data, QString *err)
     return true;
 }
 
-bool SerialInterface::read(QByteArray &out, int maxLen, QString *err)
+bool SerialInterface::read(QByteArray &out, int maxLen, QString *err, int timeoutMs)
 {
     if (!isOpen()) {
         if (err) *err = QStringLiteral("serial: not open");
         return false;
     }
     out.clear();
+    const int silenceMs = qMax(timeoutMs, kSilenceTimeoutMs);
     QElapsedTimer silence;
     silence.start();
     // Accumulate until the terminating newline (the 6487 ends every response
     // with CR and/or LF) or until the instrument goes quiet.
     for (;;) {
         if (m_port->bytesAvailable() == 0 &&
-            !m_port->waitForReadyRead(int(kSilenceTimeoutMs - silence.elapsed()))) {
+            !m_port->waitForReadyRead(int(silenceMs - silence.elapsed()))) {
             if (err)
                 *err = out.isEmpty()
                            ? QStringLiteral("serial read timeout (no response)")
@@ -95,7 +96,7 @@ bool SerialInterface::read(QByteArray &out, int maxLen, QString *err)
         }
         if (out.contains('\n') || out.contains('\r') || out.size() >= maxLen)
             break;
-        if (silence.elapsed() >= kSilenceTimeoutMs) {
+        if (silence.elapsed() >= silenceMs) {
             if (err) *err = QStringLiteral("serial read timeout");
             return false;
         }
