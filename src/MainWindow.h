@@ -57,6 +57,7 @@ private:
     QComboBox *m_rangeCombo = nullptr;
     QDoubleSpinBox *m_nplcSpin = nullptr;
     QDoubleSpinBox *m_refreshSpin = nullptr;
+    QCheckBox *m_displayCheck = nullptr;
     QDoubleSpinBox *m_windowSpin = nullptr;
     QCheckBox *m_logCheck = nullptr;
     QLineEdit *m_logPathEdit = nullptr;

@@ -17,9 +17,11 @@ public:
     bool identify(QString &idn, QString *err = nullptr);
 
     // One-time speed setup shared by both modes:
-    // fixed range, short integration, autozero/display off, reading-only format.
+    // fixed range, short integration, autozero off, reading-only format.
     // rangeAmps <= 0 selects autorange (slower; not recommended for fast mode).
-    bool configureSpeed(double rangeAmps, double nplc, QString *err = nullptr);
+    // keepDisplayOn leaves the front panel display enabled (costs some speed).
+    bool configureSpeed(double rangeAmps, double nplc, bool keepDisplayOn,
+                        QString *err = nullptr);
 
     // --- Burst (buffered) mode: fastest readout ---
     bool configureBurst(int burstSize, QString *err = nullptr);

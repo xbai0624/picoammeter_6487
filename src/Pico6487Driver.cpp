@@ -1,3 +1,4 @@
+#include <QList>
 #include "Pico6487Driver.h"
 #include "CommInterface.h"
 
@@ -22,7 +23,8 @@ bool Pico6487Driver::identify(QString &idn, QString *err)
     return true;
 }
 
-bool Pico6487Driver::configureSpeed(double rangeAmps, double nplc, QString *err)
+bool Pico6487Driver::configureSpeed(double rangeAmps, double nplc, bool keepDisplayOn,
+                                    QString *err)
 {
     if (!m_gpib->clear(err))
         return false;
@@ -46,8 +48,10 @@ bool Pico6487Driver::configureSpeed(double rangeAmps, double nplc, QString *err)
         return false;
     if (!cmd("FORM:ELEM READ", err))     // reading value only (no units/status)
         return false;
-    if (!cmd("DISP:ENAB OFF", err))      // front panel off: faster internal loop
-        return false;
+    if (!keepDisplayOn) {
+        if (!cmd("DISP:ENAB OFF", err))  // front panel off: faster internal loop
+            return false;
+    }
     if (!cmd("SYST:ZCH OFF", err))       // enable measurement
         return false;
     // Wait for configuration to settle before triggering.

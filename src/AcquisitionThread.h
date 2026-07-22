@@ -25,6 +25,7 @@ public:
         double rangeAmps = 2e-6;  // <= 0 means autorange
         double nplc = 0.01;
         double refreshSeconds = 0.05; // display update interval
+        bool keepDisplayOn = false;   // leave front panel display enabled (slower)
     };
 
     explicit AcquisitionThread(QObject *parent = nullptr);

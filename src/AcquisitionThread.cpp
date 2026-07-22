@@ -52,7 +52,7 @@ void AcquisitionThread::run()
     }
     emit instrumentInfo(idn);
 
-    if (!drv.configureSpeed(p.rangeAmps, p.nplc, &err)) {
+    if (!drv.configureSpeed(p.rangeAmps, p.nplc, p.keepDisplayOn, &err)) {
         emit errorOccurred(QStringLiteral("Configuration failed: ") + err);
         return;
     }
@@ -68,9 +68,11 @@ void AcquisitionThread::run()
         double estRate = qBound(10.0, 1000.0 * 0.01 / p.nplc, 1000.0);
         int burstSize = 0;
         while (!failed && !m_stop.load()) {
-            // Size the burst so one fill takes ~refreshMs (6487 buffer: 3000).
+            // Size the burst so one fill takes ~refreshMs. Cap at 2500: the
+            // 6485 buffer holds 2500 readings (6487: 3000) — use the smaller
+            // so both models work.
             const int wanted =
-                qBound(2, int(estRate * m_refreshMs.load() / 1000.0 + 0.5), 3000);
+                qBound(2, int(estRate * m_refreshMs.load() / 1000.0 + 0.5), 2500);
             // Reconfigure only on a meaningful change (>10%) to avoid
             // re-sending the trigger/buffer setup on every rate jitter.
             if (burstSize == 0 || std::abs(wanted - burstSize) * 10 > burstSize) {

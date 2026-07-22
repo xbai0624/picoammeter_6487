@@ -24,7 +24,7 @@
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
-    setWindowTitle(tr("Keithley 6487 Picoammeter"));
+    setWindowTitle(tr("Keithley 6485/6487 Picoammeter"));
 
     m_plot = new PlotWidget(this);
 
@@ -154,6 +154,13 @@ QWidget *MainWindow::buildControlPanel()
     measForm->addRow(tr("Range"), m_rangeCombo);
     measForm->addRow(tr("NPLC"), m_nplcSpin);
     measForm->addRow(tr("Refresh"), m_refreshSpin);
+
+    m_displayCheck = new QCheckBox(tr("Keep instrument display on"), measBox);
+    m_displayCheck->setChecked(false);
+    m_displayCheck->setToolTip(tr("Leave the front panel display enabled during\n"
+                                  "acquisition. Slightly reduces the maximum\n"
+                                  "reading rate; irrelevant at low sample rates."));
+    measForm->addRow(QString(), m_displayCheck);
     v->addWidget(measBox);
 
     // --- Display ---
@@ -262,6 +269,7 @@ void MainWindow::startAcquisition()
     p.rangeAmps = m_rangeCombo->currentData().toDouble();
     p.nplc = m_nplcSpin->value();
     p.refreshSeconds = m_refreshSpin->value();
+    p.keepDisplayOn = m_displayCheck->isChecked();
     m_thread->setParameters(p);
 
     m_plot->clearData();
@@ -290,7 +298,7 @@ void MainWindow::setControlsEnabled(bool enabled)
                        static_cast<QWidget *>(m_baudCombo),
                        static_cast<QWidget *>(m_boardSpin), static_cast<QWidget *>(m_addressSpin),
                        static_cast<QWidget *>(m_modeCombo), static_cast<QWidget *>(m_rangeCombo),
-                       static_cast<QWidget *>(m_nplcSpin),
+                       static_cast<QWidget *>(m_nplcSpin), static_cast<QWidget *>(m_displayCheck),
                        static_cast<QWidget *>(m_logCheck), static_cast<QWidget *>(m_logPathEdit),
                        static_cast<QWidget *>(m_browseButton)})
         w->setEnabled(enabled);
