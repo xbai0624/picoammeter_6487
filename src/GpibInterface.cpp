@@ -67,6 +67,8 @@ void GpibInterface::mockHandle(const QByteArray &cmdRaw)
     const QByteArray cmd = cmdRaw.trimmed().toUpper();
     if (cmd == "*IDN?") {
         m_responses.enqueue("MOCK INSTRUMENTS,Model 6487 (simulated),0000000,A00");
+    } else if (cmd == "FORM:DATA?") {
+        m_responses.enqueue(m_binaryFormat ? "SRE" : "ASC");
     } else if (cmd.startsWith("FORM:DATA")) {
         m_binaryFormat = cmd.contains("SREAL");
     } else if (cmd == "READ?") {

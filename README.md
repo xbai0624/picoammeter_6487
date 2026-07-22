@@ -20,9 +20,10 @@ driver stack (NI-488.2 / linux-gpib).
   `elapsed_seconds<TAB>current_amps` line per reading, flushed every second.
 - Selectable interface: **GPIB** (board index + address, 6487 factory
   default 22) or **RS-232** (port + baud rate). RS-232 needs no GPIB
-  hardware or vendor software. Readings transfer in binary (SREAL,
-  4 bytes each), sustaining roughly 500–600 rdg/s over serial at
-  57600 baud (~1000 rdg/s over GPIB).
+  hardware or vendor software. Over GPIB, readings transfer in binary
+  (SREAL, 4 bytes each; ~1000 rdg/s). Over RS-232 the instrument only
+  supports ASCII (the program detects this automatically), sustaining
+  roughly 280 rdg/s at 57600 baud / ~50 rdg/s at 9600.
 - Timestamps are true sample times: at maximum rate the instrument
   alternates measuring and transferring, and the plot honestly shows
   those acquisition windows (the trace is not drawn across the dead

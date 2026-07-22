@@ -47,10 +47,13 @@ private:
     bool cmd(const QByteArray &scpi, QString *err);
     static bool parseSreal(const QByteArray &payload, QVector<double> &out,
                            QString *err);
+    static bool parseReadings(const QByteArray &resp, QVector<double> &out,
+                              QString *err);
 
     CommInterface *m_gpib;
     int m_burstSize = 1000;
     int m_triggerCount = 1;
+    bool m_binary = false; // instrument confirmed SREAL format (GPIB only)
 };
 
 #endif // PICO6487_DRIVER_H
