@@ -148,11 +148,19 @@ void PlotWidget::paintEvent(QPaintEvent *)
         // Independent segments, not one connected QPainterPath: stroking a
         // long self-intersecting path is pathologically slow in Qt's raster
         // engine (hundreds of ms for <1000 noisy points).
+        // Do not connect across acquisition gaps (e.g. burst-mode transfer
+        // dead time): a step much larger than the typical spacing is a gap,
+        // not a sampling interval.
+        const double typDt = (m_t.last() - m_t[first]) / count;
+        const double gapDt = std::max(8.0 * typDt, 0.05);
         QVector<QLineF> segments;
         segments.reserve(count - 1);
-        for (int k = first + 1; k < m_t.size(); ++k)
+        for (int k = first + 1; k < m_t.size(); ++k) {
+            if (m_t[k] - m_t[k - 1] > gapDt)
+                continue;
             segments.append(QLineF(xPix(m_t[k - 1]), yPix(m_i[k - 1]),
                                    xPix(m_t[k]), yPix(m_i[k])));
+        }
         p.drawLines(segments);
     } else {
         // One min/max vertical segment per pixel column, seeded with the

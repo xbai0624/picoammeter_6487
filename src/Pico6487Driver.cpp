@@ -1,4 +1,6 @@
 #include <QList>
+#include <QtEndian>
+#include <cstring>
 #include "Pico6487Driver.h"
 #include "CommInterface.h"
 
@@ -47,6 +49,10 @@ bool Pico6487Driver::configureSpeed(double rangeAmps, double nplc, bool keepDisp
     if (!cmd("SYST:AZER OFF", err))      // autozero off: big speed gain
         return false;
     if (!cmd("FORM:ELEM READ", err))     // reading value only (no units/status)
+        return false;
+    if (!cmd("FORM:DATA SREAL", err))    // binary: 4 bytes/reading vs ~15 ASCII
+        return false;
+    if (!cmd("FORM:BORD SWAP", err))     // little-endian floats
         return false;
     if (!keepDisplayOn) {
         if (!cmd("DISP:ENAB OFF", err))  // front panel off: faster internal loop
@@ -98,33 +104,35 @@ bool Pico6487Driver::burstPointCount(int &actual, QString *err)
     return true;
 }
 
-bool Pico6487Driver::parseReadings(const QByteArray &resp, QVector<double> &out,
-                                   QString *err)
+bool Pico6487Driver::parseSreal(const QByteArray &payload, QVector<double> &out,
+                                QString *err)
 {
-    out.clear();
-    for (const QByteArray &tok : resp.split(',')) {
-        bool ok = false;
-        double v = tok.trimmed().toDouble(&ok);
-        if (ok)
-            out.append(v);
-    }
-    if (out.isEmpty()) {
+    if (payload.isEmpty() || payload.size() % 4 != 0) {
         if (err)
-            *err = QStringLiteral("no parsable readings in reply: \"%1\"")
-                       .arg(QString::fromLatin1(resp.left(64)));
+            *err = QStringLiteral("SREAL payload has invalid length %1")
+                       .arg(payload.size());
         return false;
+    }
+    const int n = payload.size() / 4;
+    out.clear();
+    out.reserve(n);
+    for (int i = 0; i < n; ++i) {
+        quint32 bits;
+        std::memcpy(&bits, payload.constData() + i * 4, 4);
+        bits = qFromLittleEndian(bits); // FORM:BORD SWAP
+        float v;
+        std::memcpy(&v, &bits, 4);
+        out.append(double(v));
     }
     return true;
 }
 
 bool Pico6487Driver::fetchBurst(QVector<double> &readings, QString *err)
 {
-    QByteArray resp;
-    // ~15 bytes per ASCII reading; allow generous headroom.
-    if (!m_gpib->query("TRAC:DATA?", resp, m_burstSize * 32 + 256, err))
+    QByteArray payload;
+    if (!m_gpib->queryBlock("TRAC:DATA?", payload, err))
         return false;
-    readings.reserve(m_burstSize);
-    return parseReadings(resp, readings, err);
+    return parseSreal(payload, readings, err);
 }
 
 bool Pico6487Driver::configureContinuous(int triggerCount, QString *err)
@@ -140,16 +148,14 @@ bool Pico6487Driver::configureContinuous(int triggerCount, QString *err)
 bool Pico6487Driver::readBatch(QVector<double> &readings, int expectedMs,
                                int *responseBytes, QString *err)
 {
-    QByteArray resp;
+    QByteArray payload;
     // READ? blocks until all triggerCount readings are taken, then returns
-    // them comma-separated — allow the measurement time plus margin.
-    if (!m_gpib->query("READ?", resp, m_triggerCount * 32 + 256, err,
-                       expectedMs + 3000))
+    // them as an SREAL block — allow the measurement time plus margin.
+    if (!m_gpib->queryBlock("READ?", payload, err, expectedMs + 3000))
         return false;
     if (responseBytes)
-        *responseBytes = resp.size();
-    readings.reserve(m_triggerCount);
-    return parseReadings(resp, readings, err);
+        *responseBytes = payload.size() + 6; // + block header/terminator bytes
+    return parseSreal(payload, readings, err);
 }
 
 void Pico6487Driver::shutdown()

@@ -52,7 +52,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     // "--autostart" begins acquisition immediately (useful for testing/scripting);
     // "--continuous" selects continuous mode first.
     if (QCoreApplication::arguments().contains(QStringLiteral("--continuous")))
-        m_modeCombo->setCurrentIndex(1);
+        m_modeCombo->setCurrentIndex(m_modeCombo->findData(
+            int(AcquisitionThread::Mode::Continuous)));
     if (QCoreApplication::arguments().contains(QStringLiteral("--autostart")))
         QMetaObject::invokeMethod(this, [this] { startAcquisition(); },
                                   Qt::QueuedConnection);
@@ -118,9 +119,9 @@ QWidget *MainWindow::buildControlPanel()
     auto *measForm = new QFormLayout(measBox);
 
     m_modeCombo = new QComboBox(measBox);
-    m_modeCombo->addItem(tr("Fast burst (~1000 rdg/s, gaps)"), int(AcquisitionThread::Mode::Burst));
     m_modeCombo->addItem(tr("Continuous (batched readings)"),
                          int(AcquisitionThread::Mode::Continuous));
+    m_modeCombo->addItem(tr("Fast burst (~1000 rdg/s, gaps)"), int(AcquisitionThread::Mode::Burst));
     m_modeCombo->setToolTip(tr("Fast burst: instrument buffer, maximum rate.\n"
                                "Continuous: batched READ? triggers - near gap-free,\n"
                                "only ~10 ms between batches."));

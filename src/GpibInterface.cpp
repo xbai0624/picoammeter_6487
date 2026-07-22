@@ -3,8 +3,10 @@
 #ifdef PICO_MOCK_GPIB
 
 #include <QThread>
+#include <QtEndian>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 // ===========================================================================
 // Mock backend: pretends to be a Keithley 6487 producing noisy ~1 nA signal.
@@ -35,23 +37,45 @@ QByteArray GpibInterface::mockReading()
     return QByteArray::number(value, 'E', 6);
 }
 
+// Wraps count synthetic readings either as comma-separated ASCII or as a
+// definite-length SREAL block, matching the configured FORM:DATA.
+QByteArray GpibInterface::mockBatch(int count)
+{
+    if (!m_binaryFormat) {
+        QByteArray out;
+        for (int i = 0; i < count; ++i) {
+            if (i) out += ',';
+            out += mockReading();
+        }
+        return out;
+    }
+    QByteArray payload;
+    payload.reserve(count * 4);
+    for (int i = 0; i < count; ++i) {
+        const float v = float(mockReading().toDouble());
+        quint32 bits = 0;
+        std::memcpy(&bits, &v, 4);
+        bits = qToLittleEndian(bits);
+        payload.append(reinterpret_cast<const char *>(&bits), 4);
+    }
+    const QByteArray len = QByteArray::number(payload.size());
+    return "#" + QByteArray::number(len.size()) + len + payload;
+}
+
 void GpibInterface::mockHandle(const QByteArray &cmdRaw)
 {
     const QByteArray cmd = cmdRaw.trimmed().toUpper();
     if (cmd == "*IDN?") {
         m_responses.enqueue("MOCK INSTRUMENTS,Model 6487 (simulated),0000000,A00");
+    } else if (cmd.startsWith("FORM:DATA")) {
+        m_binaryFormat = cmd.contains("SREAL");
     } else if (cmd == "READ?") {
         // Honors TRIG:COUN: returns m_burstSize readings taken back-to-back,
         // taking n/rate to "measure" plus a small command latency.
         if (!m_burstTimer.isValid())
             m_burstTimer.start();
         QThread::usleep(5000 + qint64(m_burstSize / m_mockRate * 1e6));
-        QByteArray outBatch;
-        for (int i = 0; i < m_burstSize; ++i) {
-            if (i) outBatch += ',';
-            outBatch += mockReading();
-        }
-        m_responses.enqueue(outBatch);
+        m_responses.enqueue(mockBatch(m_burstSize));
     } else if (cmd.startsWith("TRIG:COUN")) {
         bool ok = false;
         int n = cmd.mid(cmd.lastIndexOf(' ') + 1).toInt(&ok);
@@ -67,13 +91,8 @@ void GpibInterface::mockHandle(const QByteArray &cmdRaw)
                               int(m_burstTimer.elapsed() / 1000.0 * m_mockRate));
         m_responses.enqueue(QByteArray::number(n));
     } else if (cmd == "TRAC:DATA?") {
-        QByteArray out;
-        for (int i = 0; i < m_burstSize; ++i) {
-            if (i) out += ',';
-            out += mockReading();
-        }
         m_burstArmed = false;
-        m_responses.enqueue(out);
+        m_responses.enqueue(mockBatch(m_burstSize));
     } else if (cmd == "*OPC?") {
         m_responses.enqueue("1");
     }
@@ -86,7 +105,7 @@ bool GpibInterface::write(const QByteArray &data, QString *err)
         if (err) *err = QStringLiteral("mock GPIB: not open");
         return false;
     }
-    // a message may contain several ';'-chained commands
+    // a message may contain several ";"-chained commands
     for (const QByteArray &part : data.split(';'))
         mockHandle(part);
     return true;
@@ -100,6 +119,13 @@ bool GpibInterface::read(QByteArray &out, int, QString *err, int)
     }
     out = m_responses.dequeue();
     return true;
+}
+
+bool GpibInterface::readBlock(QByteArray &payload, QString *err, int timeoutMs)
+{
+    if (!read(payload, 0, err, timeoutMs))
+        return false;
+    return stripBlockHeader(payload, err);
 }
 
 #elif defined(PICO_NO_GPIB) // ====== built without a GPIB stack =============
@@ -122,6 +148,7 @@ bool GpibInterface::isOpen() const { return false; }
 bool GpibInterface::clear(QString *err) { return open(0, 0, err); }
 bool GpibInterface::write(const QByteArray &, QString *err) { return open(0, 0, err); }
 bool GpibInterface::read(QByteArray &, int, QString *err, int) { return open(0, 0, err); }
+bool GpibInterface::readBlock(QByteArray &, QString *err, int) { return open(0, 0, err); }
 
 #else // ===================== real GPIB backend =============================
 
@@ -251,6 +278,29 @@ bool GpibInterface::read(QByteArray &out, int maxLen, QString *err, int /*timeou
     while (out.endsWith('\n') || out.endsWith('\r'))
         out.chop(1);
     return true;
+}
+
+bool GpibInterface::readBlock(QByteArray &payload, QString *err, int /*timeoutMs*/)
+{
+    if (m_ud < 0) {
+        if (err) *err = QStringLiteral("GPIB: not open");
+        return false;
+    }
+    // Raw read until END — no trailing-newline trimming, which could eat
+    // payload bytes that happen to equal 0x0A/0x0D.
+    payload.clear();
+    QByteArray chunk(16384, Qt::Uninitialized);
+    for (;;) {
+        ibrd(m_ud, chunk.data(), chunk.size());
+        if (ibsta & ERR) {
+            if (err) *err = QStringLiteral("ibrd failed: ") + ibErrorString(iberr, ibsta);
+            return false;
+        }
+        payload.append(chunk.constData(), int(ibcntl));
+        if (ibsta & END)
+            break;
+    }
+    return stripBlockHeader(payload, err);
 }
 
 #endif // PICO_MOCK_GPIB

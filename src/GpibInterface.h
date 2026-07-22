@@ -34,6 +34,8 @@ public:
     // timeoutMs is ignored: the GPIB descriptor uses its own fixed 10 s timeout.
     bool read(QByteArray &out, int maxLen = 65536, QString *err = nullptr,
               int timeoutMs = 3000) override;
+    bool readBlock(QByteArray &payload, QString *err = nullptr,
+                   int timeoutMs = 3000) override;
 
 private:
 #ifdef PICO_MOCK_GPIB
@@ -42,11 +44,13 @@ private:
     QQueue<QByteArray> m_responses;
     int m_burstSize = 1000;
     bool m_burstArmed = false;
+    bool m_binaryFormat = false; // FORM:DATA SREAL seen
     QElapsedTimer m_burstTimer;
     double m_mockRate = 900.0; // synthetic readings per second
     std::mt19937 m_rng;
     void mockHandle(const QByteArray &cmd);
     QByteArray mockReading();
+    QByteArray mockBatch(int count);
 #else
     int m_ud = -1; // ibdev unit descriptor
     static QString ibErrorString(int iberrCode, int ibstaBits);

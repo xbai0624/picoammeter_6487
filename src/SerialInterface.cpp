@@ -94,6 +94,10 @@ bool SerialInterface::read(QByteArray &out, int maxLen, QString *err, int timeou
             out += m_port->readAll();
             silence.restart();
         }
+        // Ignore stray leading terminators (e.g. the tail of a previous
+        // binary block whose CR/LF arrived after the payload was consumed).
+        while (out.startsWith('\n') || out.startsWith('\r'))
+            out.remove(0, 1);
         if (out.contains('\n') || out.contains('\r') || out.size() >= maxLen)
             break;
         if (silence.elapsed() >= silenceMs) {
@@ -104,4 +108,67 @@ bool SerialInterface::read(QByteArray &out, int maxLen, QString *err, int timeou
     while (out.endsWith('\n') || out.endsWith('\r'))
         out.chop(1);
     return true;
+}
+
+bool SerialInterface::readBlock(QByteArray &payload, QString *err, int timeoutMs)
+{
+    if (!isOpen()) {
+        if (err) *err = QStringLiteral("serial: not open");
+        return false;
+    }
+    payload.clear();
+    QByteArray buf;
+    const int silenceMs = qMax(timeoutMs, kSilenceTimeoutMs);
+    QElapsedTimer silence;
+    silence.start();
+    int need = -1; // total bytes of the full block once the header is known
+    for (;;) {
+        if (m_port->bytesAvailable() == 0 &&
+            !m_port->waitForReadyRead(int(silenceMs - silence.elapsed()))) {
+            if (err)
+                *err = buf.isEmpty()
+                           ? QStringLiteral("serial read timeout (no response)")
+                           : QStringLiteral("serial read timeout (incomplete block)");
+            return false;
+        }
+        if (m_port->bytesAvailable() > 0) {
+            buf += m_port->readAll();
+            silence.restart();
+        }
+        if (need < 0) {
+            // Parse '#' + digit-count + length once enough bytes arrived.
+            const int hash = buf.indexOf('#');
+            if (hash >= 0 && buf.size() >= hash + 2) {
+                const int nDigits = buf[hash + 1] - '0';
+                if (nDigits < 1 || nDigits > 9) {
+                    if (err)
+                        *err = QStringLiteral("malformed binary block header");
+                    return false;
+                }
+                if (buf.size() >= hash + 2 + nDigits) {
+                    bool ok = false;
+                    const int len = buf.mid(hash + 2, nDigits).toInt(&ok);
+                    if (!ok) {
+                        if (err)
+                            *err = QStringLiteral("malformed binary block length");
+                        return false;
+                    }
+                    need = hash + 2 + nDigits + len;
+                }
+            }
+        }
+        if (need >= 0 && buf.size() >= need) {
+            QByteArray msg = buf.left(need);
+            if (!stripBlockHeader(msg, err))
+                return false;
+            payload = msg;
+            // Trailing CR/LF (arriving with or slightly after the payload) is
+            // discarded by the next read's leading-'#' search.
+            return true;
+        }
+        if (silence.elapsed() >= silenceMs) {
+            if (err) *err = QStringLiteral("serial read timeout");
+            return false;
+        }
+    }
 }
